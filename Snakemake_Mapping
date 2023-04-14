@@ -1,0 +1,100 @@
+#Commande : 
+#conda activate /beegfs/data/bguinet/Bguinet_conda/
+#
+#
+####Dry RUN command : 
+#nohup snakemake -j 200 -s Snakemake_Mapping -n --cluster "sbatch -J {params.name} -p {params.partition} -t {params.time} --mem {params.mem} --cpus-per-task {params.threads} -o {params.out} -e {params.err} --qos=horizon --constraint='haswell|broadwell|skylake' --exclude=pbil-deb27 " &> nohup_Snakemake_Mapping.out &
+#
+####Unlock command : 
+#nohup snakemake -j 200 -s Snakemake_Mapping --unlock --cluster "sbatch -J {params.name} -p {params.partition} -t {params.time} --mem {params.mem} --cpus-per-task {params.threads} -o {params.out} -e {params.err} --qos=horizon --constraint='haswell|broadwell|skylake' --exclude=pbil-deb27 "  &> nohup_Snakemake_Mapping.out &
+#
+####Real command : 
+#nohup snakemake -j 200 -s Snakemake_Mapping --cluster "sbatch -J {params.name} -p {params.partition} -t {params.time} --mem {params.mem} --cpus-per-task {params.threads} -o {params.out} -e {params.err} --qos=horizon --constraint='haswell|broadwell|skylake' --exclude=pbil-deb27 " &> nohup_Snakemake_Mapping.out &
+
+import pandas as pd
+import re 
+import os
+
+#Your paths 
+Genomes_dir="/beegfs/project/horizon/data/assembly/species/"
+Reads_dir="/beegfs/project/horizon/data/trimmed_reads/"
+Output_dir="/beegfs/project/horizon/data/mapping/" 
+Scripts_dir="/beegfs/data/soukkal/Thesis/Horizon/Scripts"
+logs_dir="/beegfs/data/soukkal/Thesis/Horizon/Mapping/logs/"
+Bwa_mem2="/beegfs/home/soukkal/miniconda3/bin/bwa-mem2.avx2"
+
+Genome_IDS_table=pd.read_csv("/beegfs/data/soukkal/Thesis/Horizon/species_list_1.txt",header=None)
+list_Genome_IDs=list(Genome_IDS_table[0])
+
+#This rule contains all the expected output from all your rules within the snakefile 
+rule all:
+        input:
+                expand(logs_dir+"{Genome_ID}_index_done.txt", Genome_ID = list_Genome_IDs),
+                expand(Output_dir+"bam/{Genome_ID}_sp1.bam.gz", Genome_ID = list_Genome_IDs),
+                expand(Output_dir+"bam/{Genome_ID}_sp2.bam.gz", Genome_ID = list_Genome_IDs)
+
+
+rule index_genome : 
+        params:
+                threads="8",
+                partition="normal",
+                time="03:00:00",
+                mem="32G", 
+                name="Index_{Genome_ID}",
+                out=logs_dir+"{Genome_ID}_index.out",
+                err=logs_dir+"{Genome_ID}_index.error"
+        input:
+                Genome=Genomes_dir+"{Genome_ID}/gnm.fna"
+        output:
+                flag=logs_dir+"{Genome_ID}_index_done.txt"
+        shell:
+                """
+                {Bwa_mem2} index {input.Genome}
+                touch {output.flag}
+                """ 
+
+rule Mapping_Sp1 :
+        params:
+                threads="8",
+                partition="normal",
+                time="24:00:00",
+                mem="32G", 
+                name="Mapping_S1_{Genome_ID}",
+                out=logs_dir+"{Genome_ID}_map_S1.out",
+                err=logs_dir+"{Genome_ID}_map_S1.error"
+        input:
+                flag=logs_dir+"{Genome_ID}_index_done.txt",
+                Genome=Genomes_dir+"{Genome_ID}/gnm.fna",
+                R1=Reads_dir+"{Genome_ID}_sp1_1.fq.gz", #Trimmed reads
+                R2=Reads_dir+"{Genome_ID}_sp1_2.fq.gz"
+        output:
+                BAM_zipped=Output_dir+"bam/{Genome_ID}_sp1.bam.gz"
+        shell:
+                """
+                hostname
+                {Bwa_mem2} mem -t 8 {input.Genome} {input.R1} {input.R2} > /beegfs/project/horizon/data/mapping/bam/{wildcards.Genome_ID}_sp1.bam
+                gzip /beegfs/project/horizon/data/mapping/bam/{wildcards.Genome_ID}_sp1.bam
+                """
+
+rule Mapping_Sp2 : 
+        params:
+                threads="8",
+                partition="normal",
+                time="24:00:00",
+                mem="32G", 
+                name="Mapping_S2_{Genome_ID}",
+                out=logs_dir+"{Genome_ID}_map_S2.out",
+                err=logs_dir+"{Genome_ID}_map_S2.error"
+        input:
+                flag=logs_dir+"{Genome_ID}_index_done.txt",
+                Genome=Genomes_dir+"{Genome_ID}/gnm.fna",
+                R1=Reads_dir+"{Genome_ID}_sp2_1.fq.gz", #Trimmed reads
+                R2=Reads_dir+"{Genome_ID}_sp2_2.fq.gz"
+        output:
+                BAM_zipped=Output_dir+"bam/{Genome_ID}_sp2.bam.gz"
+        shell:
+                """
+                hostname
+                {Bwa_mem2} mem -t 8 {input.Genome} {input.R1} {input.R2} > /beegfs/project/horizon/data/mapping/bam/{wildcards.Genome_ID}_sp2.bam
+                gzip /beegfs/project/horizon/data/mapping/bam/{wildcards.Genome_ID}_sp2.bam
+                """ 

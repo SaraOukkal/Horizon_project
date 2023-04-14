@@ -1,0 +1,43 @@
+#Commande :
+#conda activate /beegfs/data/bguinet/Bguinet_conda/
+
+import pandas as pd
+import re
+import os
+
+##DRY run :
+#nohup snakemake -j 500  -s Snakemake_QUAST_species -n --cluster " sbatch -J {params.name} -t {params.time} --cpus-per-task {params.threads} -o {params.out} -e {params.err} --qos=horizon " &> nohup_Snakemake_QUAST_species.out &
+##Unlock :
+#nohup snakemake -j 500  -s Snakemake_QUAST_species --unlock --cluster " sbatch -J {params.name} -t {params.time} --cpus-per-task {params.threads} -o {params.out} -e {params.err} --qos=horizon " &> nohup_Snakemake_QUAST_species.out &
+##Real run :
+#nohup snakemake -j 500  -s Snakemake_QUAST_species --cluster " sbatch -J {params.name} -t {params.time} --cpus-per-task {params.threads} -o {params.out} -e {params.err} --qos=horizon " &> nohup_Snakemake_QUAST_species.out &
+
+#Your paths 
+Genomes_path="/beegfs/project/horizon/data/assembly/species/"
+Output_dir="/beegfs/project/horizon/data/stats/quast/species/" 
+logs_dir="/beegfs/data/soukkal/Thesis/Horizon/Quast/logs/"
+
+Genome_IDS_table=pd.read_csv("/beegfs/data/soukkal/Thesis/Horizon/species_list_236.txt",header=None)
+list_Genome_IDs=list(Genome_IDS_table[0])
+
+rule all:
+  input:
+        expand(Output_dir+"{Genome_ID}/report.tsv", Genome_ID = list_Genome_IDs)
+
+#Run QUAST analysis: 
+rule QUAST:
+  params:
+     threads="5",
+     time="00:40:00",
+     name="QUAST_{Genome_ID}",
+     out=logs_dir+"{Genome_ID}_QUAST.out",
+     err=logs_dir+"{Genome_ID}_QUAST.error"
+  input:
+     Genome_assembly=Genomes_path+"{Genome_ID}/gnm.fna"
+  output: 
+     Result=Output_dir+"{Genome_ID}/report.tsv"
+  shell:
+     """
+     python3 /beegfs/data/soukkal/StageM2/Tools/quast/quast.py {input.Genome_assembly} -o {Output_dir}{wildcards.Genome_ID}/ -t {params.threads}
+     cp {Output_dir}{wildcards.Genome_ID}/report.tsv {Output_dir}Quast_sum/report_{wildcards.Genome_ID}.tsv
+     """

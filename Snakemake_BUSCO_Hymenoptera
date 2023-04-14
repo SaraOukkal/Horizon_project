@@ -1,0 +1,48 @@
+#Commande : 
+#conda activate /beegfs/data/bguinet/Bguinet_conda/
+
+import pandas as pd
+import re 
+import os
+
+##DRY run : 
+#nohup snakemake -j 500  -s Snakemake_BUSCO_Hymenoptera -n --cluster " sbatch -J {params.name} -t {params.time} --mem {params.mem} --cpus-per-task {params.threads} -o {params.out} -e {params.err} --qos=horizon --exclude=pbil-cloud2 " &> nohup_Snakemake_BUSCO_H.out &
+##Unlock :
+#nohup snakemake -j 500  -s Snakemake_BUSCO_Hymenoptera --unlock --cluster " sbatch -J {params.name} -t {params.time} --mem {params.mem} --cpus-per-task {params.threads} -o {params.out} -e {params.err} --qos=horizon --exclude=pbil-cloud2 " &> nohup_Snakemake_BUSCO_H.out &
+##Real run : 
+#nohup snakemake -j 500  -s Snakemake_BUSCO_Hymenoptera --cluster " sbatch -J {params.name} -t {params.time} --mem {params.mem} --cpus-per-task {params.threads} -o {params.out} -e {params.err} --qos=horizon --exclude=pbil-cloud2 " &> nohup_Snakemake_BUSCO_H.out &
+
+#Your paths
+Genomes_path="/beegfs/data/soukkal/Thesis/Horizon/Assembly/"
+Output_dir="/beegfs/data/soukkal/Thesis/Horizon/BUSCO/"
+Logs_dir="/beegfs/data/soukkal/Thesis/Horizon/BUSCO/logs/"
+
+#Open species list : 
+Genome_IDS_table=pd.read_csv("/beegfs/data/soukkal/Thesis/Horizon/Hymenoptera_list.txt",header=None)
+list_Genome_IDs=list(Genome_IDS_table[0])
+
+rule all:
+  input:
+        expand(Output_dir+"{Genome_ID}/run_hymenoptera_odb10/full_table.tsv", Genome_ID = list_Genome_IDs)
+
+#Run BUSCO analysis:
+rule BUSCO:
+  params:
+     threads="12",
+     time="18:00:00",
+     mem="12G",
+     name="BUSCO_{Genome_ID}",
+     out=Logs_dir+"{Genome_ID}_BUSCO.out",
+     err=Logs_dir+"{Genome_ID}_BUSCO.error",
+     lineage="hymenoptera_odb10",
+     mode="genome"
+  input:
+     Assembly=Genomes_path+"{Genome_ID}/Scaffolding/scaffolds.filled.fa"
+  output:
+     BUSCO_result=Output_dir+"{Genome_ID}/run_hymenoptera_odb10/full_table.tsv"
+  shell:
+     """
+      hostname
+      cd /beegfs/data/soukkal/Thesis/Horizon/BUSCO/
+      /beegfs/data/soft/singularity-3.7.2/bin/singularity exec --bind /beegfs/:/beegfs/ /beegfs/data/soft/containers/busco.sif busco -i {Genomes_path}{wildcards.Genome_ID}/Scaffolding/scaffolds.filled.fa -l {params.lineage} -m {params.mode} -o {wildcards.Genome_ID}/ -c 3 -f
+     """

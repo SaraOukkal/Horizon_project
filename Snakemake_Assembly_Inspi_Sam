@@ -1,0 +1,163 @@
+#Commande : 
+#conda activate /beegfs/data/bguinet/Bguinet_conda/
+#nohup snakemake -j 235 -s Snakemake_Assembly -n --cluster "sbatch -J {params.name} -p {params.partition}--cpus-per-task  {params.threads} -o {params.out} -e {params.err} --constraint=haswell --exclude=pbil-deb27 " &> nohup_Snakemake_Assembly.out &
+
+import pandas as pd
+import re 
+import os
+
+#Conda environment files : 
+megahit="/beegfs/data/sbarreto/hrz/p/as_horizon-assembly_2020-11-10/envs/megahit.yaml"
+redundans="/beegfs/data/sbarreto/hrz/p/as_horizon-assembly_2020-11-10/envs/redundans.yml"
+
+#Your paths 
+Reads_dir="/beegfs/data/soukkal/Thesis/Horizon/Reads/"
+Output_dir="/beegfs/data/soukkal/Thesis/Horizon/Assembly/" 
+Scripts_dir="/beegfs/data/soukkal/Thesis/Horizon/Scripts/"
+logs_dir="/beegfs/data/soukkal/Thesis/Horizon/Assembly/logs/"
+
+Genome_IDS_table=pd.read_csv("/beegfs/data/soukkal/Thesis/Horizon/Reads/specimens_list.txt",header=None)
+list_Genome_IDs=list(Genome_IDS_table[0])
+
+#This rule contains all the expected output from all your rules within the snakefile 
+rule all:
+        input:
+                expand(Output_dir+"{Genome_ID}/reads_1.trim.fq.gz", Genome_ID = list_Genome_IDs), 
+                expand(Output_dir+"{Genome_ID}/reads_2.trim.fq.gz", Genome_ID = list_Genome_IDs),
+                expand(Output_dir+"{Genome_ID}/Assembly/assembly.contigs.fa.gz", Genome_ID = list_Genome_IDs),
+                expand(Output_dir+"{Genome_ID}/Assembly/assembly.contigs.fa", Genome_ID = list_Genome_IDs),
+                expand(Output_dir+"{Genome_ID}/Assembly/scaffolds.reduced.fa.gz", Genome_ID = list_Genome_IDs)
+
+                
+#Trmming : retrait des bases et reads de mauvaise qualité et nettoyage des séquences d'adaptateurs : 
+rule Trimming:
+        params:
+                threads="16",
+                partition="normal",
+                time="01:00:00",
+                mem="4096M", 
+                name="Trimming_{Genome_ID}",
+                out=logs_dir+"{Genome_ID}_trim.out",
+                err=logs_dir+"{Genome_ID}_trim.error",
+                html = logs_dir+"{Genome_ID}_trim.html",
+                json = logs_dir+"{Genome_ID}_trim.json"
+        input:
+                R1=Reads_dir+"{Genome_ID}_1.fastq.gz",
+                R2=Reads_dir+"{Genome_ID}_2.fastq.gz"
+        output:
+                R1=Output_dir+"{Genome_ID}/reads_1.trim.fq.gz",
+                R2=Output_dir+"{Genome_ID}/reads_2.trim.fq.gz"
+        shell:
+                """
+                fastp --thread {params.threads} --in1 {input.R1} --in2 {input.R2} --out1 {output.R1} --out2 {output.R2} --adapter_sequence AGATCGGAAGAGCACACGTCTGAACTCCAGTCA --adapter_sequence_r2 AGATCGGAAGAGCGTCGTGTAGGGAAAGAGTGT --length_required 100 --correction --json {params.json} --html {params.html} 2> {params.err} > {params.out}
+                """ 
+
+#Concaténation des reads séquencés en low cov (tour 1) et high cov (tour 2), quand c'est le cas : 
+##Mettre des conditions, ne faire cette rule concatenate que s'il existe des fichiers high et low cov
+#rule concatenate:
+#        params:
+#                threads="2",
+#                partition="normal",
+#                time="00:20:00",
+#                mem="2000M", 
+#                name="Concat_{Genome_ID}",
+#                out=logs_dir+"{Genome_ID}_concatenate.out",
+#                err=logs_dir+"{Genome_ID}_concatenate.error"
+#        input:
+#                R1_low="reads_1.trim.fq.gz",
+#                R2_low="reads_2.trim.fq.gz",
+#                R1_high="reads_1.trim.fq.gz",
+#                R2_high="reads_2.trim.fq.gz",
+#        output:
+#                R1=Output_dir+"{Genome_ID}/reads_1.fq.gz",
+#                R2=Output_dir+"{Genome_ID}/reads_2.fq.gz"
+#        shell:
+#                """
+#                cat {input.R1_low} > {output.R1}
+#                cat {input.R1_high} >> {output.R1}
+#                cat {input.R2_low} > {output.R2}
+#                cat {input.R2_high} >> {output.R2}
+#                """
+
+#Assemblage des reads avec Megahit (la ça utilise les résultats direct du trimming sans concaténation, changer s'il faut concaténer): 
+rule assembly:
+        params:
+                threads="8",
+                partition="bigmem",
+                time="30:00:00",
+                mem="96G",
+                name="Assembly_{Genome_ID}",
+                out=logs_dir+"{Genome_ID}_Assembly.out",
+                err=logs_dir+"{Genome_ID}_Assembly.error"
+        input:
+                R1=Output_dir+"{Genome_ID}/reads_1.trim.fq.gz",
+                R2=Output_dir+"{Genome_ID}/reads_2.trim.fq.gz"
+        output:
+                Assembly=Output_dir+"{Genome_ID}/Assembly/assembly.contigs.fa.gz"
+        conda: 
+                megahit
+        shell: 
+                """
+                {Scripts_dir}/run_megahit.sh -s {wildcards.Genome_ID} -1 {input.R1} -2 ${input.R2} -c {params.threads} -m 49 -S
+                """
+
+#Renommer les headers des séquences pour que ce soit lu correctement par le logiciel de scaffolding : 
+rule contig_rehead: 
+        params:
+                threads="2",
+                partition="normal",
+                time="00:30:00",
+                mem="2000M",
+                name="Rehead_{Genome_ID}",
+                out=logs_dir+"{Genome_ID}_contig_rehead.out",
+                err=logs_dir+"{Genome_ID}_contig_rehead.error"
+        input:
+                Assembly=Output_dir+"{Genome_ID}/Assembly/assembly.contigs.fa.gz"
+        output:
+                Assembly2=Output_dir+"{Genome_ID}/Assembly/assembly.contigs.fa"
+        shell:
+                """
+                gzip -d -c {input.Assembly} | {Scripts_dir}/annotate_contigs.pl {wildcards.Genome_ID} > {output.Assembly2}
+                """
+
+#Scaffolding (regrouper les contigs grace aux information des reads paired end)
+rule scaffolding:
+        params:
+                threads="16",
+                partition="normal",
+                time="24:00:00",
+                mem="32G",  ######Mettre BIG MEM ???
+                name="Scaffolding_{Genome_ID}",
+                out=logs_dir+"{Genome_ID}_scaffolding.out",
+                err=logs_dir+"{Genome_ID}_scaffolding.error"
+        input:
+                Assembly=Output_dir+"{Genome_ID}/Assembly/assembly.contigs.fa",
+                R1=Output_dir+"{Genome_ID}/reads_1.trim.fq.gz",
+                R2=Output_dir+"{Genome_ID}/reads_2.trim.fq.gz"
+        output:
+                Assembly2=Output_dir+"{Genome_ID}/Assembly/scaffolds.reduced.fa.gz"
+        conda: 
+                redundans
+        shell: ##Les inputs et outputs sont à spécifier directement dans le script
+                """
+                {Scripts_dir}/run_redundans_2.sh --sample {wildcards.Genome_ID} --cpus {params.threads}
+                """
+
+#Renommer les noms des headers des scaffolds : 
+rule scaffold_rehead:
+        params:
+                threads="1",
+                partition="normal",
+                time="00:30:00",
+                mem="2000M",
+                name="Rehead_{Genome_ID}",
+                out=logs_dir+"{Genome_ID}_scaff_rehead.out",
+                err=logs_dir+"{Genome_ID}_scaff_rehead.error"
+        input:
+                Assembly=Output_dir+"{Genome_ID}/Assembly/scaffolds.reduced.fa.gz"
+        output:
+                Assembly2=Output_dir+"{Genome_ID}/Assembly/scaffolds.hdr.fa"
+        shell:
+                """
+                gzip -d -c {input.Assembly} | {Scripts_dir}/annotate_contigs.pl {wildcards.Genome_ID} > {output.Assembly2}
+                """
