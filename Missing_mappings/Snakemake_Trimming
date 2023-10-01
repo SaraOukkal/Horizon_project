@@ -1,0 +1,49 @@
+#Activate conda :
+## conda activate /beegfs/data/bguinet/Bguinet_conda
+
+#Import python packages :
+import pandas as pd
+import re
+import os
+
+#Command lines :
+##DRY run :
+#nohup snakemake -j 200  -s Snakemake_Trimming -n --cluster " sbatch -J {params.name} -t {params.time} --mem {params.mem} --cpus-per-task {params.threads} -o {params.out} -e {params.err} --qos=horizon --constraint=haswell --exclude=pbil-deb27 " &> nohup_Snakemake_Trimming.out &
+##Unlock :
+#nohup snakemake -j 200  -s Snakemake_Trimming --unlock --cluster " sbatch -J {params.name} -t {params.time} --mem {params.mem} --cpus-per-task {params.threads} -o {params.out} -e {params.err} --qos=horizon ---constraint=haswell --exclude=pbil-deb27 " &> nohup_Snakemake_Trimming.out &
+##Real run :
+#nohup snakemake -j 200  -s Snakemake_Trimming --cluster " sbatch -J {params.name} -t {params.time} --mem {params.mem} --cpus-per-task {params.threads} -o {params.out} -e {params.err} --qos=horizon --constraint=haswell --exclude=pbil-deb27 " &> nohup_Snakemake_Trimming.out &
+
+#Data pathways :
+Reads_dir="/beegfs/data/soukkal/Thesis/Horizon/Reads/"
+Output_dir="/beegfs/data/soukkal/Thesis/Horizon/Reads/Trimmed_reads/"
+Logs_dir="/beegfs/data/soukkal/Thesis/Horizon/Mapping/logs_missing/"
+
+#Liste d'espèces :
+Genome_IDS_table=pd.read_csv("/beegfs/data/soukkal/Thesis/Horizon/Missing_specimens.txt",header=None)
+list_Genome_IDs=list(Genome_IDS_table[0])
+
+rule all:
+        input:
+                expand(Output_dir+"{Genome_ID}_1.fq", Genome_ID = list_Genome_IDs),
+                expand(Output_dir+"{Genome_ID}_2.fq", Genome_ID = list_Genome_IDs)
+
+rule Trimming:
+        params:
+                threads="3",
+                time="10:00:00",
+                name="Trim_{Genome_ID}",
+                mem="1G",
+                out=Logs_dir+"Trim_{Genome_ID}.out",
+                err=Logs_dir+"Trim_{Genome_ID}.error"
+        input:
+                R1=Reads_dir+"{Genome_ID}_1.fastq.gz",
+                R2=Reads_dir+"{Genome_ID}_2.fastq.gz"
+        output:
+                R1=Output_dir+"{Genome_ID}_1.fq",
+                R2=Output_dir+"{Genome_ID}_2.fq"
+        shell:
+                """
+                fastp --in1 {input.R1} --in2 {input.R2} --out1 {output.R1} --out2 {output.R2}
+                """
+
