@@ -1,0 +1,19 @@
+#!/bin/bash
+
+# Spécifiez le chemin du dossier contenant vos fichiers
+dossier="/beegfs/project/horizon/data/mapping/cov"
+
+# Naviguer vers le dossier
+cd "$dossier"
+
+# Boucle sur les fichiers dans le dossier
+for fichier in *; do
+    # Vérifier si le fichier se termine par "_1.cov"
+    if [[ "$fichier" == *_1.cov ]]; then
+        # Extraire le nom du fichier sans "_1"
+        nouveau_nom="${fichier%_1.cov}.cov"
+        # Renommer le fichier
+        mv "$fichier" "$nouveau_nom"
+        echo "Renommé: $fichier -> $nouveau_nom"
+    fi
+done
