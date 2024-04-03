@@ -4,4 +4,6 @@
 **/nohup_*
 **/*.out
 **/*.err
+*.log
+**/*.log
 
