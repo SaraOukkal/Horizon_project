@@ -1,0 +1,7 @@
+**/.snakemake
+**/*.json
+**/*.html
+**/nohup_*
+**/*.out
+**/*.err
+
