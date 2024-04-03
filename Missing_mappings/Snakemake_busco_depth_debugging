@@ -1,0 +1,74 @@
+#Commande :
+#conda activate /beegfs/data/bguinet/Bguinet_conda/
+#
+#
+####Dry RUN command :
+#nohup snakemake -j 200 -s Snakemake_busco_depth_debugging -n --cluster "sbatch -J {params.name} -p {params.partition} -t {params.time} --mem {params.mem} --cpus-per-task {params.threads} -o {params.out} -e {params.err} --qos=horizon --constraint='haswell|broadwell|skylake' --exclude=pbil-deb27 " &> nohup_Snakemake_busco_depth_bug.out &
+#
+####Unlock command :
+#nohup snakemake -j 200 -s Snakemake_busco_depth_debugging --unlock --cluster "sbatch -J {params.name} -p {params.partition} -t {params.time} --mem {params.mem} --cpus-per-task {params.threads} -o {params.out} -e {params.err} --qos=horizon --constraint='haswell|broadwell|skylake' --exclude=pbil-deb27 "  &> nohup_Snakemake_busco_depth_bug.out &
+#
+####Real command :
+#nohup snakemake -j 200 -s Snakemake_busco_depth_debugging --cluster "sbatch -J {params.name} -p {params.partition} -t {params.time} --mem {params.mem} --cpus-per-task {params.threads} -o {params.out} -e {params.err} --qos=horizon --constraint='haswell|broadwell|skylake' --exclude=pbil-deb27 " &> nohup_Snakemake_busco_depth_bug.out &
+
+import pandas as pd
+import re
+import os
+
+#Your paths
+Genomes_dir="/beegfs/project/horizon/data/assembly/species/"
+Output_dir="/beegfs/project/horizon/data/mapping/"
+Scripts_dir="/beegfs/data/soukkal/Thesis/Horizon/Scripts/Missing_mappings/"
+logs_dir="/beegfs/data/soukkal/Thesis/Horizon/Mapping/logs/"
+
+#Softwares :
+Soft_dir="/beegfs/home/soukkal/miniconda3/bin/"
+
+##Créer un dictionnaire avec les correspondances species et specimens : 
+
+file_names = [
+    "actia_janzen06:DHJPAR0050715",
+    "alabagrus_combos:DHJPAR0035295",
+    "hyposoter_inb-42dhj01:DHJPAR0014099",
+    "lixophaga_wood06:DHJPAR0016507",
+    "meteorus_papiliovorusdhj03:DHJPAR0012865",
+    "napaea_eucharila:04-SRNP-41648",
+    "parapanteles_continua:DHJPAR0002774",
+    "quadrus_cerialis:04-SRNP-14171",
+]
+
+species_to_specimen={}
+
+for file_name in file_names:
+    parts = file_name.split(':')
+    if len(parts) == 2:
+        species, specimen = parts
+        species_to_specimen[species] = specimen
+
+#This rule contains all the expected output from all your rules within the snakefile
+rule all:
+        input:
+                [f"{Output_dir}Busco_depth_test/overlapping_alignments_{key}:{value}.sam" for key, value in species_to_specimen.items()]
+
+rule Depth:
+        params:
+                threads="8",
+                partition="normal",
+                time="24:00:00",
+                mem="8G",
+                name="Depth_{sample}_1",
+                out=logs_dir+"{sample}_depth_sp1.out",
+                err=logs_dir+"{sample}_depth_sp1.error",
+                sample_value=lambda wildcards: species_to_specimen[wildcards.sample],
+                sample=lambda wildcards: wildcards.sample
+        input:
+                BAM_1=Output_dir+"bam/{sample}:{sample_value}.bam.gz",
+                BED_1="/beegfs/project/horizon/data/stats/busco/species_busco_pos/Busco_positions_{sample}_{sample_value}_modified.bed"
+        output:
+                BED_2=Output_dir+"Busco_depth_test/overlapping_alignments_{params.sample}:{params.sample_value}.sam"
+        shell:
+                """
+                {Soft_dir}samtools sort {input.BAM_1} -l 1 -o {Output_dir}bam/{params.sample}:{params.sample_value}_sorted.bam.gz
+                {Soft_dir}samtools view -L {input.BED_1} {Output_dir}bam/{params.sample}:{params.sample_value}_sorted.bam > {output.BED_2}
+                rm {Output_dir}bam/{params.sample}:{params.sample_value}_sorted.bam.gz
+                """

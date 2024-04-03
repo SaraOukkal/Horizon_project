@@ -1,0 +1,160 @@
+#Commande :
+#conda activate /beegfs/data/bguinet/Bguinet_conda/
+#
+#
+####Dry RUN command :
+#nohup snakemake -j 200 -s Snakemake_Mapping_Cov -n --cluster "sbatch -J {params.name} -p {params.partition} -t {params.time} --mem {params.mem} --cpus-per-task {params.threads} -o {params.out} -e {params.err} --qos=horizon --constraint='haswell|broadwell|skylake' --exclude=pbil-deb27 " &> nohup_Snakemake_Mapping_Cov.out &
+#
+####Unlock command :
+#nohup snakemake -j 200 -s Snakemake_Mapping_Cov --unlock --cluster "sbatch -J {params.name} -p {params.partition} -t {params.time} --mem {params.mem} --cpus-per-task {params.threads} -o {params.out} -e {params.err} --qos=horizon --constraint='haswell|broadwell|skylake' --exclude=pbil-deb27 "  &> nohup_Snakemake_Mapping_Cov.out &
+#
+####Real command :
+#nohup snakemake -j 200 -s Snakemake_Mapping_Cov --cluster "sbatch -J {params.name} -p {params.partition} -t {params.time} --mem {params.mem} --cpus-per-task {params.threads} -o {params.out} -e {params.err} --qos=horizon --constraint='haswell|broadwell|skylake' --exclude=pbil-deb27 " &> nohup_Snakemake_Mapping_Cov.out &
+
+
+import pandas as pd
+import re
+import os
+
+#Your paths
+Genomes_dir="/beegfs/project/horizon/data/assembly/species/"
+Reads_dir="/beegfs/project/horizon/data/trimmed_reads/"
+Output_dir="/beegfs/project/horizon/data/mapping/"
+Scripts_dir="/beegfs/data/soukkal/Thesis/Horizon/Scripts/Missing_mappings/"
+logs_dir="/beegfs/data/soukkal/Thesis/Horizon/Mapping/logs/"
+
+#Softwares :
+Soft_dir="/beegfs/home/soukkal/miniconda3/bin/"
+
+##Créer un dictionnaire avec les correspondances species et specimens : 
+
+file_names = [
+    "lytopylus_rufofemoratus:DHJPAR0036722",
+    "enicospilus_monticoladhj01:DHJPAR0000839",
+    "casinaria_macerata:DHJPAR0014427",
+    "charmedia_chavarriai:DHJPAR0009589",
+    "hypomicrogaster_janzen54:DHJPAR0051031",
+    "sphelodon_wardae:DHJPAR0037046",
+    "calolydella_timjamesi:DHJPAR0017783",
+    "campylocheta_wood03:DHJPAR0018687",
+    "omiodes_fulvicauda:04-SRNP-61502",
+    "zera_burns01dhj02:02-SRNP-4228",
+    "sparganocosma_docsturnerorum:02-SRNP-6614",
+    "trichaea_pilicornis:04-SRNP-31121",
+    "megalopyge_janzen06:01-SRNP-12260",
+    "mimophobetron_pyropsalis:05-SRNP-25149",
+    "euclea_bidiscalis:04-SRNP-4350",
+    "syllepte_solis22:03-SRNP-37386",
+    "coenipeta_phasis:03-SRNP-2287"
+]
+
+species_to_specimen={}
+
+for file_name in file_names:
+    parts = file_name.split(':')
+    if len(parts) == 2:
+        species, specimen = parts
+        species_to_specimen[species] = specimen
+
+
+#This rule contains all the expected output from all your rules within the snakefile
+rule all:
+        input:
+                [f"{logs_dir}{key}_index_done.txt" for key, value in species_to_specimen.items()],
+                [f"{Output_dir}bam/{key}:{value}.bam.gz" for key, value in species_to_specimen.items()],
+                [f"{Output_dir}bed/{key}:{value}.per-base.bed.gz" for key, value in species_to_specimen.items()],
+                [f"{Output_dir}cov/{key}:{value}.cov" for key, value in species_to_specimen.items()]
+
+
+rule index_genome:
+        params:
+                threads="8",
+                partition="normal",
+                time="03:00:00",
+                mem="32G",
+                name="Index_{sample}",
+                out=logs_dir+"{sample}_index.out",
+                err=logs_dir+"{sample}_index.error",
+                sample=lambda wildcards: wildcards.sample
+        input:
+                Genome=Genomes_dir+"{sample}/gnm.fna"
+        output:
+                flag=logs_dir+"{sample}_index_done.txt"
+        shell:
+                """
+                hostname
+                {Soft_dir}bwa-mem2.avx2 index {input.Genome}
+                touch {output.flag}
+                """
+
+rule Mapping:
+        params:
+                threads="8",
+                partition="normal",
+                time="12:00:00",
+                mem="32G",
+                name="Mapping_{sample}:{sample_value}",
+                out=logs_dir+"{sample}:{sample_value}_map.out",
+                err=logs_dir+"{sample}:{sample_value}_map.error",
+                sample_value=lambda wildcards: species_to_specimen[wildcards.sample],
+                sample=lambda wildcards: wildcards.sample
+        input:
+                flag=logs_dir+"{sample}_index_done.txt",
+                Genome=Genomes_dir+"{sample}/gnm.fna",
+                R1=Reads_dir+"{sample}:{sample_value}_1.fq.gz",
+                R2=Reads_dir+"{sample}:{sample_value}_2.fq.gz"
+        output:
+                BAM_zipped=Output_dir+"bam/{sample}:{sample_value}.bam.gz"
+        shell:
+                """
+                hostname
+                {Soft_dir}bwa-mem2.avx2 mem -t 8 {input.Genome} {input.R1} {input.R2} > {Output_dir}bam/{params.sample}:{params.sample_value}.bam
+                gzip {Output_dir}bam/{params.sample}:{params.sample_value}.bam
+                """
+
+rule Coverage:
+        params:
+                threads="8",
+                partition="normal",
+                time="24:00:00",
+                mem="8G",
+                name="Coverage_{sample}:{sample_value}",
+                out=logs_dir+"{sample}:{sample_value}_cov.out",
+                err=logs_dir+"{sample}:{sample_value}_cov.error",
+                sample_value=lambda wildcards: species_to_specimen[wildcards.sample],
+                sample=lambda wildcards: wildcards.sample
+        input:
+                BAM=Output_dir+"bam/{sample}:{sample_value}.bam.gz"
+        output:
+                BED=Output_dir+"bed/{sample}:{sample_value}.per-base.bed.gz"
+        shell:
+                """
+                hostname
+                {Soft_dir}samtools sort {input.BAM} -l 1 -o {Output_dir}bam/{params.sample}:{params.sample_value}_sorted.bam.gz
+                {Soft_dir}samtools depth -a {Output_dir}bam/{params.sample}:{params.sample_value}_sorted.bam.gz > {Output_dir}bed/{params.sample}:{params.sample_value}.per-base.bed
+                gzip {Output_dir}bed/{params.sample}:{params.sample_value}.per-base.bed
+                rm {Output_dir}bam/{params.sample}:{params.sample_value}_sorted.bam.gz
+                """
+
+rule Mean:
+        params:
+                threads="4",
+                partition="normal",
+                time="20:00:00",
+                mem="1G",
+                name="Cov_{sample}:{sample_value}",
+                out=logs_dir+"{sample}:{sample_value}_mean_cov.out",
+                err=logs_dir+"{sample}:{sample_value}_mean_cov.error",
+                sample_value=lambda wildcards: species_to_specimen[wildcards.sample],
+                sample=lambda wildcards: wildcards.sample
+        input:
+                BAM=Output_dir+"bam/{sample}:{sample_value}.bam.gz"
+        output:
+                Cov=Output_dir+"cov/{sample}:{sample_value}.cov"
+        shell:
+                """
+                hostname
+                {Soft_dir}samtools sort {input.BAM} -l 1 -o {Output_dir}bam/{params.sample}:{params.sample_value}_sorted2.bam.gz
+                /beegfs/data/soft/samtools-1.10/bin/samtools coverage -o {output.Cov} {Output_dir}bam/{params.sample}:{params.sample_value}_sorted2.bam.gz
+                rm {Output_dir}bam/{params.sample}:{params.sample_value}_sorted2.bam.gz
+                """
